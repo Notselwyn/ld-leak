@@ -40,29 +40,36 @@ def search_dir(directory: str) -> None:
         except: ...
 
 
-def initiate_search() -> None:
+def initiate_search() -> set[str, str, ...]:
     ''' This function starts the regex spree in all directories and does validation. 
 
+    :returns: a list of validated directories 
     '''
 
     # strip the remaining / off the directory names
     # e.g. /usr/include/ -> /usr/include
-    for p in range(2, len(sys.argv)):
-        sys.argv[p] = sys.argv[p].rstrip("/")
-
+    dirs = sys.argv[2].split(",")
+    for p in range(len(dirs)):
+        dirs[p] = dirs[p].rstrip("/")
+    
+    dirs = set(dirs)  # unique
+    print("directories: ", dirs, file=sys.stderr)
     # initiates directory checking
-    for directory in sys.argv[2:]:
+    for directory in dirs:
         if not os.path.isdir(directory):
             print(f"path {directory} is not a directory", file=sys.stderr)
             sys.exit(1)
         search_dir(directory)
 
+    return dirs
 
-def get_best_headers(header_candidates: dict[str, list[str, str, ...]]) -> dict[str, str]:
+
+def get_best_headers(dirs: set[str, str, ...], header_candidates: dict[str, list[str, str, ...]]) -> dict[str, str]:
     ''' selects the best suitable header file when multiple files match.
     the algoritmh is based on the hierarchical filesystem depth.
     /usr/include/string.h is better than /usr/include/pkg/string.h
 
+    :param dirs: the directories in which the header files are located. used for score
     :param header_candidates: the header files in which a symbol was found
     :returns: the best suitable header file
     '''
@@ -75,7 +82,7 @@ def get_best_headers(header_candidates: dict[str, list[str, str, ...]]) -> dict[
             sys.exit(1)
 
         for header in headers:
-            for directory in sys.argv[2:]:
+            for directory in dirs:
                 if directory+"/" not in header:
                     continue
                 # algorithm for maintaining lowest score
@@ -191,7 +198,7 @@ if __name__ == "__main__":
     # enforce arguments
     if len(sys.argv) < 3:
         print("symbols.py usage:", file=sys.stderr)
-        print("symbols.py <symbol1,symbol2,...> <headers> [headers headers]", file=sys.stderr)
+        print("symbols.py <symbol1,symbol2,...> <header1,header2,...>", file=sys.stderr)
         sys.exit(1)
 
     # compile regex query for C functions
@@ -205,9 +212,9 @@ if __name__ == "__main__":
     header_candidates = {s: [] for s in symbols}
 
     # by using global vars we save mem
-    initiate_search()
+    dirs = initiate_search()
 
-    headers = get_best_headers(header_candidates)
+    headers = get_best_headers(dirs, header_candidates)
     
     print(generate_lib(headers))
 
