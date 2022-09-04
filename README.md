@@ -1,5 +1,5 @@
 # LD-Leak: your tool for a hooking pool
-LD-Leak, or `ldleak` (Load Dynamic Leak), is a tool which can be used to track dynamically linked function calls, such as `strcmp()`. It may be useful when a user has `--x--x--x` (executable only) permissions and wants to dynamically analyze a binary, wants to dynamically hunt for secrets, or just wants to get a grip on the control flow.
+LD-Leak (Load Dynamic Leak) is a tool which can be used to track dynamically linked function calls, such as `strcmp()`. It may be useful when a user has `--x--x--x` (executable only) permissions and wants to dynamically analyze a binary, wants to dynamically hunt for secrets, or just wants to get a grip on the control flow.
 
 ## How it works
 LD-Leak utilizes the `LD_PRELOAD`ing technique to intercept function calls to dynamic libraries such as `GLIBC`. `LD_PRELOAD`ing ensures that all dynamically loaded functions should first be checked in the specified library. By adding a hook in this library we can intercept function calls without even reading or modifying the original binary.
