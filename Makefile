@@ -6,3 +6,4 @@ build:
 	echo "\n\nbuilt lib.so\nusage:\nLD_PRELOAD=./lib.so *program*"
 clean:
 	rm lib.c
+	rm *.swp

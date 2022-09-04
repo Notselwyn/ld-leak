@@ -53,7 +53,7 @@ def initiate_search() -> set[str, str, ...]:
         dirs[p] = dirs[p].rstrip("/")
     
     dirs = set(dirs)  # unique
-    print("directories: ", dirs, file=sys.stderr)
+    
     # initiates directory checking
     for directory in dirs:
         if not os.path.isdir(directory):
