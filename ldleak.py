@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 import re
@@ -52,7 +54,7 @@ def initiate_search() -> None:
     for directory in sys.argv[2:]:
         if not os.path.isdir(directory):
             print(f"path {directory} is not a directory", file=sys.stderr)
-            exit()
+            sys.exit(1)
         search_dir(directory)
 
 
@@ -70,7 +72,7 @@ def get_best_headers(header_candidates: dict[str, list[str, str, ...]]) -> dict[
         score[symbol] = {h: 99999 for h in headers}
         if len(headers) == 0:
             print(f"the definition for {symbol} could not be found", file=sys.stderr)
-            exit()
+            sys.exit(1)
 
         for header in headers:
             for directory in sys.argv[2:]:
@@ -116,7 +118,7 @@ def generate_lib(headers: dict[str, str]) -> str:
         if "..." in sign:
             print(f'... in the function signature of {symbol} are not yet supported', file=sys.stderr)
             print('please try another symbol until this feature has been added', file=sys.stderr)
-            exit()
+            sys.exit(1)
 
         # generates the function signature:
         # int strcmp(const char* __s1,const char* __s2) {
@@ -145,9 +147,9 @@ def generate_lib(headers: dict[str, str]) -> str:
             if t == "char*":
                 printf_args += ['\\"%s\\"']
             elif "*" in t:
-                printf_args += ['%p']
+                printf_args += ['0x%p']
             else:
-                printf_args += ['%lx']
+                printf_args += ['%lu']
 
         lib_content += ", ".join(printf_args)
         lib_content += ') @ 0x%lx\\n"'  # for printing the RETADDR
@@ -190,7 +192,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("symbols.py usage:", file=sys.stderr)
         print("symbols.py <symbol1,symbol2,...> <headers> [headers headers]", file=sys.stderr)
-        exit()
+        sys.exit(1)
 
     # compile regex query for C functions
     # cannot be refactored due to {s}
@@ -209,3 +211,4 @@ if __name__ == "__main__":
     
     print(generate_lib(headers))
 
+	
