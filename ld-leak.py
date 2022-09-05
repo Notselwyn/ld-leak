@@ -104,6 +104,19 @@ def generate_lib(headers: dict[str, str]) -> str:
     lib_content = "#define _GNU_SOURCE\n"
     lib_content += "#include <stdio.h>\n"
     lib_content += "#include <dlfcn.h>\n"
+    lib_content += "#include <stdarg.h>\n"
+
+    # other functions may use __printf for the hook
+    # it's a dynamic fix I guess
+
+    for symbol in headers:
+        lib_content += f"\n#define {symbol.upper()} ((typeof (&{symbol}))__{symbol})\n"
+        lib_content += f"void* __{symbol};\n"
+
+    lib_content += "\nDl_info __get_dladdr(const void* addr)\n{\n"
+    lib_content += "    Dl_info info;\n"
+    lib_content += "    dladdr(addr, &info);\n"
+    lib_content += "    return info;\n}\n"
 
     # generate function wrappers for all symbols
     for symbol, file in headers.items():
@@ -121,16 +134,37 @@ def generate_lib(headers: dict[str, str]) -> str:
         
         print(sign, file=sys.stderr)
 
-        # TO-DO: add support for VARARGS
-        if "..." in sign:
-            print(f'... in the function signature of {symbol} are not yet supported', file=sys.stderr)
-            print('please try another symbol until this feature has been added', file=sys.stderr)
-            sys.exit(1)
-
         # generates the function signature:
         # int strcmp(const char* __s1,const char* __s2) {
-        lib_content += f"\n\nvoid* __{symbol};\n" + sign + "\n{\n"
+        lib_content += f"\n\n" + sign + "\n{\n"
+         
+        # adds bloat (like addresses)
+        lib_content += "    void* ret = __builtin_return_address(0);\n"
+        lib_content += "    Dl_info info = __get_dladdr(ret);\n"
+        lib_content += "    int offset = ret - info.dli_fbase;\n"
+
+        # parses the signature arguments (used for printf and final hook call)
+        __args = sign[sign.index('(')+1:sign.index(')')].split(',')
+        if __args == ['void']:
+            __args = []
+
+        # the ... which printf may have
+        has_varargs =  __args[-1] == "..."
+        #print(__args, file=sys.stderr)
+        if has_varargs:
+            if len(__args) != 2:
+                print(f'... in the function signature of {symbol} are not yet supported', file=sys.stderr)
+                print('please try another symbol until this feature has been added', file=sys.stderr)
+                sys.exit(1)
         
+            __args.pop(-1)
+
+            lib_content += f'    va_list argp;\n'
+            lib_content += f'    va_start(argp, __format);\n'
+
+        # retrieves the argument type and the name: {'__s1': 'char*'}
+        args = {x.split(' ')[-1]: x.split(' ')[-2] for x in __args}
+
         # the code below generates the printf hook:
         # printf("strcmp(\"%s\", \"%s\") @ 0x%lx\n",
         #     __s1, __s2, (unsigned long)__builtin_return_address(0));
@@ -138,43 +172,49 @@ def generate_lib(headers: dict[str, str]) -> str:
         # vvvvvv becomes vvvvvv
  
         # strcmp("PIPESTATUS", "PIPESTATUS") @ 0x55dee0f543e2
-        lib_content += f'    printf("{symbol}('
         
-        # parses the signature arguments (used for printf and final hook call)
-        __args = sign[sign.index('(')+1:sign.index(')')].split(',')
-        if __args == ['void']:
-            __args = []
+        if "printf" in headers:
+            lib_content += f'    PRINTF("{symbol}('
+        else:
+            lib_content += f'    printf("{symbol}('
 
-        # retrieves the argument type and the name: {'__s1': 'char*'}
-        args = {x.split(' ')[-1]: x.split(' ')[-2] for x in __args}
-        
         # choose what to printf()
         printf_args = []
         for name, t in args.items():
+            printf_arg = name + "="
             if t == "char*":
-                printf_args += ['\\"%s\\"']
+                printf_arg += '\\"%s\\"'
             elif "*" in t:
-                printf_args += ['0x%p']
+                printf_arg += '0x%p'
             else:
-                printf_args += ['%lu']
+                printf_arg += '%lu'
+            printf_args += [printf_arg]
+        
+        # add VARARGS to printf arguments
+        if has_varargs:
+            printf_args += ['...']
 
         lib_content += ", ".join(printf_args)
-        lib_content += ') @ 0x%lx\\n"'  # for printing the RETADDR
+        lib_content += ') @ 0x%lx [0x%lx|%s]\\n"'  # for printing the RETADDR
 
         for k in args.keys():
             lib_content += ", " + k
         
         # prints the return address
-        lib_content += ", (unsigned long)__builtin_return_address(0));\n\n    "
+        lib_content += ", ret, offset, info.dli_fname);\n\n    "
         
 
         # return type void should not have a return statement according to gcc
         if sign.split(" ")[0] != 'void':
             lib_content += 'return '
+
+        # force the varargs into the function call
+        if has_varargs:
+            args['argp'] = 'va_list'
         
         # generates the final function call:
         # ((typeof (&strcmp))__strcmp)(__s1, __s2);
-        lib_content += f'((typeof (&{symbol}))__{symbol})('
+        lib_content += symbol.upper() + '('
         lib_content += ", ".join(args.keys())
         lib_content += ");\n}"
 

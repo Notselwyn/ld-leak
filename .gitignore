@@ -2,3 +2,4 @@ lib.c
 lib.so
 poc
 *.swp
+*.bak
