@@ -195,13 +195,13 @@ def generate_lib(headers: dict[str, str]) -> str:
             printf_args += ['...']
 
         lib_content += ", ".join(printf_args)
-        lib_content += ') @ 0x%lx [0x%lx|%s]\\n"'  # for printing the RETADDR
+        lib_content += ') @ 0x%lx [%s->0x%lx]\\n"'  # for printing the RETADDR
 
         for k in args.keys():
             lib_content += ", " + k
         
         # prints the return address
-        lib_content += ", ret, offset, info.dli_fname);\n\n    "
+        lib_content += ", ret, info.dli_fname, offset);\n\n    "
         
 
         # return type void should not have a return statement according to gcc
