@@ -92,6 +92,72 @@ def get_best_headers(dirs: set[str, str, ...], header_candidates: dict[str, list
     # this selects the header file with the lowest score
     return {symbol: min(score[symbol], key=lambda k: score[symbol][k]) for symbol in score}
 
+
+def make_tree(headers: list[str, str, ...]) -> dict[str, dict[str, ...]]:
+    ''' [recursively] generates a tree dictionary based on path
+    ['/usr/include/string.h'] -> {'usr': {'include': {'string.h': None}}}
+
+    :param headers: a list of header file path
+    :returns: a nested dictionary with header files, like described above
+    '''
+
+    # par is the parent directory/dict
+    # e.g. / for /usr/
+    par = {}
+    for p in headers:
+        # first dirs may contain / prefix: /usr/ -> usr/
+        p = p.lstrip('/')
+        if p.count('/') == 0:  
+            # because it's a file, it can't have children
+            par[p] = None
+            continue
+        
+        ndir, child = p.split('/', 1)
+        
+        # make new key if it doesn't exist already
+        if ndir not in par:
+            par[ndir] = []
+        par[ndir] += [child]
+    
+    # can't be optimized because prevent par[ndir].update() will be overwritten
+    for p in par:
+        if par[p] is not None:
+            # do this all over again for the directory's subdirs 
+            par[p] = make_tree([c for c in par[p] if c is not None])
+
+    return par
+
+def graph_tree(headers: dict[str, dict[str, ...]], offset: str="") -> str:
+    ''' [resursively] generates a tree like the unix `tree` utility
+    
+    :param headers: a nested dictionary with header files, like described above
+    :param offset: a string that's put in front of the file/dir name
+    :returns: a string of a graphical tree 
+    '''
+
+    symbol = "├── "
+    endsymbol = "└── "
+    output = ""
+    
+    # sort paths (dict keys) as this can't be done to a dictionary
+    sheaders = sorted(headers)
+    for path in sheaders:  
+        __symbol = symbol
+        __offset = "│   "
+        if path == sheaders[-1]:  # don't add a "connected" symbol if it's last
+            __symbol = endsymbol
+            __offset = "    "
+        
+
+        output += offset + __symbol + path + "\n"
+
+        # do this all over again (with an increased offset) for subdirs
+        if headers[path] is not None:
+            output += graph_tree(headers[path], offset=offset+__offset)
+    
+    return output
+
+
 def generate_lib(headers: dict[str, str]) -> str:
     ''' this is the most important part of the tool:
     it generates C code for a shared object (.so) file to be used for the LD-preloading.
@@ -185,7 +251,7 @@ def generate_lib(headers: dict[str, str]) -> str:
             if t == "char*":
                 printf_arg += '\\"%s\\"'
             elif "*" in t:
-                printf_arg += '0x%p'
+                printf_arg += '%p'  # 0x gets added automatically
             else:
                 printf_arg += '%lu'
             printf_args += [printf_arg]
@@ -255,7 +321,20 @@ if __name__ == "__main__":
     dirs = initiate_search()
 
     headers = get_best_headers(dirs, header_candidates)
-    
+
+    # this basically shows symbols in which headerfiles
+    tree = {}
+    for header in headers.values():
+        tree[header] = [symbol for symbol in headers if headers[symbol] == header]
+
+    #print(tree, file=sys.stderr)
+
+    # this converts the paths into a nested dict
+    path_dict = make_tree(tree)
+
+    # this nicely displays header tree
+    print(graph_tree(path_dict), file=sys.stderr)
+
     print(generate_lib(headers))
 
 	
