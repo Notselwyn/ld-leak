@@ -375,8 +375,6 @@ if __name__ == "__main__":
     for header in headers.values():
         tree[header] = [symbol for symbol in headers if headers[symbol] == header]
 
-    #print(tree, file=sys.stderr)
-    print(tree)
     # this converts the paths into a nested dict
     path_dict = make_tree(tree)
 
