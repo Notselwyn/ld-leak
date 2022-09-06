@@ -93,37 +93,44 @@ def get_best_headers(dirs: set[str, str, ...], header_candidates: dict[str, list
     return {symbol: min(score[symbol], key=lambda k: score[symbol][k]) for symbol in score}
 
 
-def make_tree(headers: list[str, str, ...]) -> dict[str, dict[str, ...]]:
+def make_tree(headers: dict[str, [str, str, ...]]) -> dict[str, dict[str, ...]]:
     ''' [recursively] generates a tree dictionary based on path
-    ['/usr/include/string.h'] -> {'usr': {'include': {'string.h': None}}}
+    {'/usr/include/string.h': ['strcmp']} -> {'usr': {'include': {'string.h': ['strcmp']}}}
+
+    TL;DR: if a key has a list value, it's a file
+               if a key has a dict value, it's a directory
 
     :param headers: a list of header file path
     :returns: a nested dictionary with header files, like described above
     '''
-
+    
     # par is the parent directory/dict
     # e.g. / for /usr/
     par = {}
-    for p in headers:
-        # first dirs may contain / prefix: /usr/ -> usr/
+    for p in headers.copy().keys():
+        # dirs must contain / prefix: /usr/ -> usr/
+        op = p
         p = p.lstrip('/')
         if p.count('/') == 0:  
             # because it's a file, it can't have children
-            par[p] = None
+            par[p] = headers[p]
             continue
         
         ndir, child = p.split('/', 1)
-        
+        headers[child] = headers[op]
+        del headers[op]
+
         # make new key if it doesn't exist already
         if ndir not in par:
-            par[ndir] = []
-        par[ndir] += [child]
+            par[ndir] = {}
+        par[ndir].update({child: headers[child]})
     
     # can't be optimized because prevent par[ndir].update() will be overwritten
     for p in par:
-        if par[p] is not None:
-            # do this all over again for the directory's subdirs 
-            par[p] = make_tree([c for c in par[p] if c is not None])
+        # par[p] is the child
+        if not isinstance(par[p], list):
+            # do this all over again for the directory's subdirs
+            par[p] = make_tree(par[p])
 
     return par
 
@@ -149,13 +156,84 @@ def graph_tree(headers: dict[str, dict[str, ...]], offset: str="") -> str:
             __offset = "    "
         
 
-        output += offset + __symbol + path + "\n"
+        output += offset + __symbol + path
 
         # do this all over again (with an increased offset) for subdirs
-        if headers[path] is not None:
+        if not isinstance(headers[path], list):
+            output += "\n"
             output += graph_tree(headers[path], offset=offset+__offset)
-    
+            continue
+        
+        # add content of header files
+        output += " : " + ','.join(headers[path]) + '\n'
+
     return output
+
+
+def get_format(t: str) -> str: 
+    if t == "char*":
+        return '\\"%s\\"'
+    
+    if "*" in t:
+        return '%p'  # 0x gets added automatically
+    
+    return '%lu'
+     
+
+
+class Hook:
+    def __init__(self, symbol, signature):
+        self.symbol = symbol
+        self.signature = signature
+        self.rettype = signature.split(" ")[0]
+        
+        self.__generate_args()
+        self.__generate_call()
+
+    def __generate_args(self):
+        # parses the signature arguments (used for printf and final hook call)
+        self.__args = self.signature[self.signature.index('(')+1:self.signature.index(')')].split(',')
+        if self.__args == ['void']:
+            self.__args = []
+
+        # the ... which printf may have
+        self.has_varargs =  len(self.__args) > 0 and self.__args[-1] == "..."
+        #print(__args, file=sys.stderr)
+        if self.has_varargs:
+            if len(self.__args) != 2:
+                print(f'... in the function signature of {symbol} are not yet supported', file=sys.stderr)
+                print('please try another symbol until this feature has been added', file=sys.stderr)
+                sys.exit(1)
+        
+            self.__args.pop(-1)
+
+        # retrieves the argument type and the name: {'__s1': 'char*'}
+        self.args = {x.split(' ')[-1]: x.split(' ')[-2] for x in self.__args}
+
+        # choose what to printf()
+        self.printf_args = []
+        for name, t in self.args.items():
+            self.printf_arg = name + "=" + get_format(t)
+
+            self.printf_args += [self.printf_arg]
+        
+        # add VARARGS to printf arguments
+        if self.has_varargs:
+            self.printf_args += ['...']
+
+    def __generate_call(self):
+        self.call = ""
+
+        # force the varargs into the function call
+        if self.has_varargs:
+            self.args['argp'] = 'va_list'
+        
+        # generates the final function call:
+        # ((typeof (&strcmp))__strcmp)(__s1, __s2);
+        self.call += self.symbol.upper() + '('
+        self.call += ", ".join(self.args.keys())
+        self.call += ")"
+
 
 
 def generate_lib(headers: dict[str, str]) -> str:
@@ -198,40 +276,22 @@ def generate_lib(headers: dict[str, str]) -> str:
         sign = sign.replace(" (", "(").replace(", ", ",").replace(" *", "* ")
         sign = sign.replace("__restrict ", "")  # gives unnecessary trouble
         
-        print(sign, file=sys.stderr)
+        hook = Hook(symbol, sign)
+        print(hook.signature + " + " + hook.call, file=sys.stderr)
 
         # generates the function signature:
         # int strcmp(const char* __s1,const char* __s2) {
-        lib_content += f"\n\n" + sign + "\n{\n"
+        lib_content += f"\n\n" + hook.signature + "\n{\n"
          
         # adds bloat (like addresses)
-        lib_content += "    void* ret = __builtin_return_address(0);\n"
-        
+        lib_content += "    void* ret = __builtin_return_address(0);\n" 
+        if hook.has_varargs:
+            lib_content += '       va_list argp;\n'
+            lib_content += '       va_start(argp, __format);\n'
+
         lib_content += "    if ((unsigned long)ret < 0x700000000000) {\n"
         lib_content += "        Dl_info info = __get_dladdr(ret);\n"
         lib_content += "        void* offset = (void*)(ret - info.dli_fbase);\n"
-
-        # parses the signature arguments (used for printf and final hook call)
-        __args = sign[sign.index('(')+1:sign.index(')')].split(',')
-        if __args == ['void']:
-            __args = []
-
-        # the ... which printf may have
-        has_varargs =  len(__args) > 0 and __args[-1] == "..."
-        #print(__args, file=sys.stderr)
-        if has_varargs:
-            if len(__args) != 2:
-                print(f'... in the function signature of {symbol} are not yet supported', file=sys.stderr)
-                print('please try another symbol until this feature has been added', file=sys.stderr)
-                sys.exit(1)
-        
-            __args.pop(-1)
-
-            lib_content += f'       va_list argp;\n'
-            lib_content += f'       va_start(argp, __format);\n'
-
-        # retrieves the argument type and the name: {'__s1': 'char*'}
-        args = {x.split(' ')[-1]: x.split(' ')[-2] for x in __args}
 
         # the code below generates the printf hook:
         # printf("strcmp(\"%s\", \"%s\") @ 0x%lx\n",
@@ -240,54 +300,39 @@ def generate_lib(headers: dict[str, str]) -> str:
         # vvvvvv becomes vvvvvv
  
         # strcmp("PIPESTATUS", "PIPESTATUS") @ 0x55dee0f543e2
-        
+
         # TO-DO: whenever dprintf is allowed, add toggle to macro
         # redirect all output to /dev/stderr
-        lib_content += f'        dprintf(2, "{symbol}('
+        lib_content += f'        dprintf(2, "{hook.symbol}('
+        lib_content += ", ".join(hook.printf_args)
+        lib_content += ') @ %p [%s->%p]'   # for printing the RETADDR
+        if hook.rettype == 'void':
+            lib_content += ' = (void)\\n'
+        lib_content += '"'
 
-        # choose what to printf()
-        printf_args = []
-        for name, t in args.items():
-            printf_arg = name + "="
-            if t == "char*":
-                printf_arg += '\\"%s\\"'
-            elif "*" in t:
-                printf_arg += '%p'  # 0x gets added automatically
-            else:
-                printf_arg += '%lu'
-            printf_args += [printf_arg]
-        
-        # add VARARGS to printf arguments
-        if has_varargs:
-            printf_args += ['...']
-
-        lib_content += ", ".join(printf_args)
-        lib_content += ') @ %p [%s->%p]\\n"'  # for printing the RETADDR
-
-        for k in args.keys():
+        for k in hook.args.keys():
             lib_content += ", " + k
         
         # prints the return address
         lib_content += ", ret, info.dli_fname, offset);\n"
         
+        # returns the return value (if rettype is not void)
+        if hook.rettype != 'void':
+            lib_content += "        " + hook.rettype + " ret = " + hook.call + ";\n"
+            lib_content += '        dprintf(2, " = ' + get_format(hook.rettype) 
+            lib_content += '\\n", ret);\n'
+            lib_content += '        return ret;\n'
+
         # close the if statement and add spaces in case return type void
         lib_content += "    }\n    "        
 
         # return type void should not have a return statement according to gcc
-        if sign.split(" ")[0] != 'void':
+        if hook.signature.split(" ")[0] != 'void':
             lib_content += 'return '
 
-        # force the varargs into the function call
-        if has_varargs:
-            args['argp'] = 'va_list'
-        
-        # generates the final function call:
-        # ((typeof (&strcmp))__strcmp)(__s1, __s2);
-        lib_content += symbol.upper() + '('
-        lib_content += ", ".join(args.keys())
-        lib_content += ");\n}"
+        lib_content += hook.call + ";\n}\n"
 
-    # generates the function loader for original function addresses:
+# generates the function loader for original function addresses:
     
     # __attribute__((constructor))
     # static void __load_functions() {
@@ -331,7 +376,7 @@ if __name__ == "__main__":
         tree[header] = [symbol for symbol in headers if headers[symbol] == header]
 
     #print(tree, file=sys.stderr)
-
+    print(tree)
     # this converts the paths into a nested dict
     path_dict = make_tree(tree)
 
