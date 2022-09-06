@@ -206,8 +206,10 @@ def generate_lib(headers: dict[str, str]) -> str:
          
         # adds bloat (like addresses)
         lib_content += "    void* ret = __builtin_return_address(0);\n"
-        lib_content += "    Dl_info info = __get_dladdr(ret);\n"
-        lib_content += "    int offset = ret - info.dli_fbase;\n"
+        
+        lib_content += "    if ((unsigned long)ret < 0x700000000000) {\n"
+        lib_content += "        Dl_info info = __get_dladdr(ret);\n"
+        lib_content += "        void* offset = (void*)(ret - info.dli_fbase);\n"
 
         # parses the signature arguments (used for printf and final hook call)
         __args = sign[sign.index('(')+1:sign.index(')')].split(',')
@@ -225,8 +227,8 @@ def generate_lib(headers: dict[str, str]) -> str:
         
             __args.pop(-1)
 
-            lib_content += f'    va_list argp;\n'
-            lib_content += f'    va_start(argp, __format);\n'
+            lib_content += f'       va_list argp;\n'
+            lib_content += f'       va_start(argp, __format);\n'
 
         # retrieves the argument type and the name: {'__s1': 'char*'}
         args = {x.split(' ')[-1]: x.split(' ')[-2] for x in __args}
@@ -239,10 +241,9 @@ def generate_lib(headers: dict[str, str]) -> str:
  
         # strcmp("PIPESTATUS", "PIPESTATUS") @ 0x55dee0f543e2
         
-        if "printf" in headers:
-            lib_content += f'    PRINTF("{symbol}('
-        else:
-            lib_content += f'    printf("{symbol}('
+        # TO-DO: whenever dprintf is allowed, add toggle to macro
+        # redirect all output to /dev/stderr
+        lib_content += f'        dprintf(2, "{symbol}('
 
         # choose what to printf()
         printf_args = []
@@ -261,14 +262,16 @@ def generate_lib(headers: dict[str, str]) -> str:
             printf_args += ['...']
 
         lib_content += ", ".join(printf_args)
-        lib_content += ') @ 0x%lx [%s->0x%lx]\\n"'  # for printing the RETADDR
+        lib_content += ') @ %p [%s->%p]\\n"'  # for printing the RETADDR
 
         for k in args.keys():
             lib_content += ", " + k
         
         # prints the return address
-        lib_content += ", ret, info.dli_fname, offset);\n\n    "
+        lib_content += ", ret, info.dli_fname, offset);\n"
         
+        # close the if statement and add spaces in case return type void
+        lib_content += "    }\n    "        
 
         # return type void should not have a return statement according to gcc
         if sign.split(" ")[0] != 'void':
