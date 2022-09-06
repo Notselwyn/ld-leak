@@ -217,7 +217,7 @@ def generate_lib(headers: dict[str, str]) -> str:
             __args = []
 
         # the ... which printf may have
-        has_varargs =  __args[-1] == "..."
+        has_varargs =  len(__args) > 0 and __args[-1] == "..."
         #print(__args, file=sys.stderr)
         if has_varargs:
             if len(__args) != 2:
