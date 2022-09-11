@@ -254,8 +254,8 @@ def generate_lib(headers: dict[str, str]) -> str:
     # it's a dynamic fix I guess
 
     for symbol in headers:
-        lib_content += f"\n#define {symbol.upper()} ((typeof (&{symbol}))__{symbol})\n"
-        lib_content += f"void* __{symbol};\n"
+        lib_content += f"\n#define {symbol.upper()} ((typeof (&{symbol}))__{symbol.upper()})\n"
+        lib_content += f"void* __{symbol.upper()};\n"
 
     lib_content += "\nDl_info __get_dladdr(const void* addr)\n{\n"
     lib_content += "    Dl_info info;\n"
@@ -307,7 +307,7 @@ def generate_lib(headers: dict[str, str]) -> str:
         lib_content += ", ".join(hook.printf_args)
         lib_content += ') @ %p [%s->%p]'   # for printing the RETADDR
         if hook.rettype == 'void':
-            lib_content += ' = (void)\\n'
+            lib_content += ' -> (void)\\n'
         lib_content += '"'
 
         for k in hook.args.keys():
@@ -319,7 +319,7 @@ def generate_lib(headers: dict[str, str]) -> str:
         # returns the return value (if rettype is not void)
         if hook.rettype != 'void':
             lib_content += "        " + hook.rettype + " ret = " + hook.call + ";\n"
-            lib_content += '        dprintf(2, " = ' + get_format(hook.rettype) 
+            lib_content += '        dprintf(2, " -> ' + get_format(hook.rettype) 
             lib_content += '\\n", ret);\n'
             lib_content += '        return ret;\n'
 
@@ -342,7 +342,7 @@ def generate_lib(headers: dict[str, str]) -> str:
     lib_content += "\n\n__attribute__((constructor))\n"
     lib_content += "static void __load_functions()\n{\n"
     for symbol, file in headers.items():
-        lib_content += f'    __{symbol} = dlsym(RTLD_NEXT, "{symbol}");\n'
+        lib_content += f'    __{symbol.upper()} = dlsym(RTLD_NEXT, "{symbol}");\n'
     lib_content += '}'
 
     return lib_content
