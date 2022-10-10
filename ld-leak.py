@@ -201,7 +201,7 @@ class Hook:
         #print(__args, file=sys.stderr)
         if self.has_varargs:
             if len(self.__args) != 2:
-                print(f'... in the function signature of {symbol} are not yet supported', file=sys.stderr)
+                print(f'... in the function signature of {self.symbol} are not yet supported', file=sys.stderr)
                 print('please try another symbol until this feature has been added', file=sys.stderr)
                 sys.exit(1)
         
@@ -351,8 +351,8 @@ def generate_lib(headers: dict[str, str]) -> str:
 if __name__ == "__main__":
     # enforce arguments
     if len(sys.argv) < 3:
-        print("symbols.py usage:", file=sys.stderr)
-        print("symbols.py <symbol1,symbol2,...> <header1,header2,...>", file=sys.stderr)
+        print("ld-leak.py usage:", file=sys.stderr)
+        print("ld-leak.py <symbol1,symbol2,...> <header1,header2,...>", file=sys.stderr)
         sys.exit(1)
 
     # compile regex query for C functions
