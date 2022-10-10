@@ -32,6 +32,43 @@ $ git clone https://github.com/Notselwyn/ldleak
 ```
 
 ## Usage
+### Script
+```console
+$ ./ld-leak.sh fopen,fread,read "fdisk -l"
+└── usr
+    └── include
+        ├── stdio.h : fopen,fread
+        └── unistd.h : read
+
+FILE* fopen(const char* __filename,const char* __modes) + FOPEN(__filename, __modes)
+size_t fread(void* __ptr,size_t __size,size_t __n,FILE* __stream) + FREAD(__ptr, __size, __n, __stream)
+ssize_t read(int __fd,void* __buf,size_t __nbytes) + READ(__fd, __buf, __nbytes)
+======= STARTING PROGRAM ========
+
+
+fopen(__filename="/proc/partitions", __modes="r") @ 0x557b71b47fae [fdisk->0x9fae] -> 0x557b72de5cb0
+fopen(__filename="/sys/block/nvme0n1/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> 0x557b72deb550
+Disk /dev/nvme0n1: 236.47 GiB, 239060514304 bytes, 500008192 sectors
+Disk model: *** ******** *****                  
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Device             Start       End   Sectors  Size Type
+/dev/nvme0n1p1      4096   1023998   1019903  498M EFI System
+/dev/nvme0n1p2   1024000   9412606   8388607    4G Microsoft basic data
+/dev/nvme0n1p3   9412608 491725486 482312879  230G Linux filesystem
+fopen(__filename="/sys/block/nvme0n1p1/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> (nil)
+fopen(__filename="/sys/block/nvme0n1p1/device/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> (nil)
+fopen(__filename="/sys/block/nvme0n1p2/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> (nil)
+fopen(__filename="/sys/block/nvme0n1p2/device/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> (nil)
+fopen(__filename="/sys/block/nvme0n1p3/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> (nil)
+fopen(__filename="/sys/block/nvme0n1p3/device/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> (nil)
+fopen(__filename="/sys/block/dm-0/dev", __modes="re") @ 0x557b71b4cf42 [fdisk->0xef42] -> 0x557b72deb550
+...
+```
+
+### Manual
 ```console
 $ make SYMBOLS=*function1*,*function2*,*...* INCLUDE=/usr/include,*...*
 $ LD_PRELOAD=./lib.so *program*
